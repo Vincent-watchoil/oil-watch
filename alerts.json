@@ -1,0 +1,14 @@
+{
+ "_help": "Edit this file (GitHub web or phone) whenever you open or close a position. 'when' is 'below' or 'above'. An alert fires once, then 'armed' becomes false; set it back to true to re-arm. Delete 'position' or set barrels to 0 when flat.",
+ "position": {
+  "side": "buy",
+  "barrels": 0,
+  "entry": 0,
+  "close_out": null,
+  "aed_per_usd": 3.6725
+ },
+ "alerts": [
+  {"id": "example-stop-warning", "symbol": "WTI", "when": "below", "level": 80.00, "armed": false, "note": "example - set your own level and armed:true"},
+  {"id": "example-target",       "symbol": "WTI", "when": "above", "level": 95.00, "armed": false, "note": "example - set your own level and armed:true"}
+ ]
+}
