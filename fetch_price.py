@@ -88,7 +88,8 @@ def append_bars(asset: str, bars):
 
 
 # ---------------------------------------------------------------- notify
-def send_email(subject: str, body: str) -> bool:
+def send_email(subject: str, body: str, html: str | None = None, png: bytes | None = None) -> bool:
+    """Plain-text email; with html (and an inline PNG referenced as cid:chart) when given."""
     host, user, pw, to = (os.environ.get(k) for k in ("SMTP_HOST", "SMTP_USER", "SMTP_PASS", "ALERT_TO"))
     if not (host and user and pw and to):
         log("email: not configured, skipping")
@@ -97,6 +98,10 @@ def send_email(subject: str, body: str) -> bool:
     msg = EmailMessage()
     msg["From"], msg["To"], msg["Subject"] = user, to, subject
     msg.set_content(body)
+    if html:
+        msg.add_alternative(html, subtype="html")
+        if png:
+            msg.get_payload()[1].add_related(png, maintype="image", subtype="png", cid="<chart>")
     try:
         with smtplib.SMTP(host, port, timeout=30) as s:
             s.starttls(context=ssl.create_default_context())
@@ -168,7 +173,16 @@ def evaluate(cfg: dict, quotes: dict) -> bool:
             pnl_line(cfg.get("position"), price),
             "This alert is now disarmed. Edit alerts.json to re-arm or change levels.",
         ]))
-        sent = send_email(title, body) | send_push(title, body)
+        html = png = None
+        try:
+            import brief as _b
+            ctx = _b.market_context(quotes, cfg.get("position"))
+            body += "\n" + _b.normal_day_line(ctx, price, cfg.get("position"))
+            png = _b.render_chart(quotes["WTI"], cfg, title)
+            html = _b.html_wrap(title, body, png is not None)
+        except Exception as e:  # noqa
+            log("alert chart skipped:", repr(e))
+        sent = send_email(title, body, html, png) | send_push(title, body)
         a["armed"] = False
         a["fired_at"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
         a["fired_price"] = round(price, 2)
@@ -186,6 +200,9 @@ def main() -> int:
         ok = send_email("OIL ALERT test — channel check", body) | send_push("OIL ALERT test", body, "default")
         log("test alert", "delivered" if ok else "NOT delivered — check secrets / Actions log")
         return 0 if ok else 1
+    if os.environ.get("BRIEF", "").lower() in ("1", "true", "yes"):
+        import brief
+        return brief.main()
     quotes = {}
     for name, sym in SYMBOLS.items():
         try:
