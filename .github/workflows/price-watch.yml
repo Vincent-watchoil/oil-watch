@@ -2,11 +2,16 @@ name: price-watch
 
 on:
   schedule:
-    - cron: "*/5 * * * *"      # every 5 minutes (GitHub may delay a few minutes under load)
-  workflow_dispatch:            # lets you run it by hand from the Actions tab
+    - cron: "*/5 * * * *"      # price check every 5 minutes (GitHub may delay a few minutes)
+    - cron: "50 3 * * *"       # daily brief ~08:00 Dubai (03:50 UTC; scheduler drift lands it near 08:00)
+  workflow_dispatch:            # run by hand from the Actions tab
     inputs:
       test:
         description: "Send a test alert (email + push) instead of checking prices"
+        type: boolean
+        default: false
+      brief:
+        description: "Send the position/market brief now"
         type: boolean
         default: false
 
@@ -20,13 +25,16 @@ concurrency:
 jobs:
   watch:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Fetch prices and evaluate alerts
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+      - run: pip install -q -r requirements.txt
+      - name: Fetch prices / evaluate alerts / brief
         env:
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
@@ -36,6 +44,7 @@ jobs:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           POSITION_JSON: ${{ secrets.POSITION_JSON }}
           TEST_ALERT: ${{ inputs.test }}
+          BRIEF: ${{ inputs.brief || (github.event_name == 'schedule' && github.event.schedule == '50 3 * * *') }}
         run: python fetch_price.py
       - name: Commit data
         run: |
