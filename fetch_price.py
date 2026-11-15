@@ -179,6 +179,13 @@ def evaluate(cfg: dict, quotes: dict) -> bool:
 
 # ---------------------------------------------------------------- main
 def main() -> int:
+    if os.environ.get("TEST_ALERT", "").lower() in ("1", "true", "yes"):
+        body = ("This is a test of the oil-watch alert channel.\n"
+                "If you are reading this, email delivery from GitHub Actions works.\n"
+                f"Sent {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC.")
+        ok = send_email("OIL ALERT test — channel check", body) | send_push("OIL ALERT test", body, "default")
+        log("test alert", "delivered" if ok else "NOT delivered — check secrets / Actions log")
+        return 0 if ok else 1
     quotes = {}
     for name, sym in SYMBOLS.items():
         try:
