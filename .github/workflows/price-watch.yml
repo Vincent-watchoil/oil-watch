@@ -2,8 +2,9 @@ name: price-watch
 
 on:
   schedule:
-    - cron: "3 * * * *"        # hourly; each run then polls every 5 min for 55 min (loop.sh)
-    - cron: "50 3 * * *"       # daily brief ~08:00 Dubai (03:50 UTC; scheduler drift lands it near 08:00)
+    - cron: "23 * * * *"       # hourly (off the top of the hour, where GitHub's queue is worst);
+                               # each run then polls every 5 min for 55 min and sends the
+                               # 08:00-Dubai brief from inside the loop (loop.sh)
   workflow_dispatch:            # run by hand from the Actions tab
     inputs:
       test:
@@ -21,7 +22,7 @@ permissions:
 concurrency:
   # the hourly loop holds the 'loop' slot; briefs and manual runs use 'oneshot'
   # so they never queue behind a 55-minute loop run
-  group: ${{ (github.event_name == 'workflow_dispatch' || github.event.schedule == '50 3 * * *') && 'oneshot' || 'loop' }}
+  group: ${{ github.event_name == 'workflow_dispatch' && 'oneshot' || 'loop' }}
   cancel-in-progress: false
 
 jobs:
@@ -46,5 +47,5 @@ jobs:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           POSITION_JSON: ${{ secrets.POSITION_JSON }}
           TEST_ALERT: ${{ inputs.test }}
-          BRIEF: ${{ inputs.brief || (github.event_name == 'schedule' && github.event.schedule == '50 3 * * *') }}
+          BRIEF: ${{ inputs.brief }}
         run: bash loop.sh

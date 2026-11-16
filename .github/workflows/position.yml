@@ -1,0 +1,60 @@
+name: set position
+
+on:
+  workflow_dispatch:
+    inputs:
+      side:
+        description: "Buy or sell"
+        type: choice
+        options: [buy, sell]
+        default: buy
+      barrels:
+        description: "Barrels (0 = position closed)"
+        required: true
+        default: "0"
+      entry:
+        description: "Opening rate, e.g. 86.84"
+        default: "0"
+      equity:
+        description: "Account equity in AED (sets the close-out line), e.g. 2730"
+        default: "0"
+      stop_warning:
+        description: "Warning level, e.g. 86.20 (blank = none)"
+        default: ""
+      target:
+        description: "Target level, e.g. 88.40 (blank = none)"
+        default: ""
+      contract:
+        description: "Contract Plus500 Oil is on, e.g. CLF27.NYM (blank = keep current)"
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: oneshot
+  cancel-in-progress: false
+
+jobs:
+  set:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Write position and alerts
+        run: |
+          args="--side ${{ inputs.side }} --barrels ${{ inputs.barrels }} --entry ${{ inputs.entry }} --equity ${{ inputs.equity }}"
+          [ -n "${{ inputs.stop_warning }}" ] && args="$args --stop-warning ${{ inputs.stop_warning }}"
+          [ -n "${{ inputs.target }}" ]       && args="$args --target ${{ inputs.target }}"
+          [ -n "${{ inputs.contract }}" ]     && args="$args --contract ${{ inputs.contract }}"
+          python set_position.py $args
+          cat alerts.json
+      - name: Commit
+        run: |
+          git config user.name  "oil-watch bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add alerts.json
+          git diff --cached --quiet || (git commit -m "position: ${{ inputs.side }} ${{ inputs.barrels }} @ ${{ inputs.entry }}" && git pull -q --rebase && git push)
