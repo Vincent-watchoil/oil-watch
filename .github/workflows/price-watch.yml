@@ -2,7 +2,7 @@ name: price-watch
 
 on:
   schedule:
-    - cron: "*/5 * * * *"      # price check every 5 minutes (GitHub may delay a few minutes)
+    - cron: "3 * * * *"        # hourly; each run then polls every 5 min for 55 min (loop.sh)
     - cron: "50 3 * * *"       # daily brief ~08:00 Dubai (03:50 UTC; scheduler drift lands it near 08:00)
   workflow_dispatch:            # run by hand from the Actions tab
     inputs:
@@ -19,13 +19,15 @@ permissions:
   contents: write
 
 concurrency:
-  group: price-watch
+  # the hourly loop holds the 'loop' slot; briefs and manual runs use 'oneshot'
+  # so they never queue behind a 55-minute loop run
+  group: ${{ (github.event_name == 'workflow_dispatch' || github.event.schedule == '50 3 * * *') && 'oneshot' || 'loop' }}
   cancel-in-progress: false
 
 jobs:
   watch:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -45,10 +47,4 @@ jobs:
           POSITION_JSON: ${{ secrets.POSITION_JSON }}
           TEST_ALERT: ${{ inputs.test }}
           BRIEF: ${{ inputs.brief || (github.event_name == 'schedule' && github.event.schedule == '50 3 * * *') }}
-        run: python fetch_price.py
-      - name: Commit data
-        run: |
-          git config user.name  "oil-watch bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add data alerts.json
-          git diff --cached --quiet || (git commit -m "price $(date -u +%Y-%m-%dT%H:%MZ)" && git push)
+        run: bash loop.sh
