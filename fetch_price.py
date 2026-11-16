@@ -134,6 +134,15 @@ def load_alerts() -> dict:
     cfg = json.loads(ALERTS.read_text()) if ALERTS.exists() else {"alerts": []}
     if os.environ.get("POSITION_JSON"):
         cfg["position"] = json.loads(os.environ["POSITION_JSON"])
+    # Which WTI contract to track. Plus500's "Oil" rolls to the next month ~5 days
+    # before CME expiry, while Yahoo's CL=F stays on the front month until expiry,
+    # so for those days the two differ by the whole M1-M2 spread. Set
+    # "wti_symbol": "CLF27.NYM" in alerts.json to follow the contract your broker
+    # is on; "CL=F" (default) is the exchange front month.
+    sym = (cfg.get("wti_symbol") or "CL=F").strip()
+    if sym != SYMBOLS["WTI"]:
+        SYMBOLS["WTI"] = sym
+        log(f"WTI symbol: {sym}")
     return cfg
 
 
@@ -203,6 +212,7 @@ def main() -> int:
     if os.environ.get("BRIEF", "").lower() in ("1", "true", "yes"):
         import brief
         return brief.main()
+    cfg = load_alerts()
     quotes = {}
     for name, sym in SYMBOLS.items():
         try:
@@ -229,7 +239,9 @@ def main() -> int:
     DATA.mkdir(exist_ok=True)
     (DATA / "latest.json").write_text(json.dumps(latest, indent=1))
 
-    cfg = load_alerts()
+    if "wti" in latest:
+        latest["wti"]["symbol"] = SYMBOLS["WTI"]
+        (DATA / "latest.json").write_text(json.dumps(latest, indent=1))
     if evaluate(cfg, quotes):
         if os.environ.get("POSITION_JSON"):
             cfg.pop("position", None)      # never write the secret back into the repo

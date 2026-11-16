@@ -128,7 +128,7 @@ def headlines(n: int = 3) -> list[tuple[str, str, str]]:
 def market_context(quotes: dict, position: dict | None) -> dict:
     ctx = {}
     try:
-        d = yahoo_daily("CL=F")
+        d = yahoo_daily(fp.SYMBOLS["WTI"])
         ranges = [b["h"] - b["l"] for b in d[-10:] if b["h"] and b["l"]]
         ctx["normal_day"] = round(sum(ranges) / len(ranges), 2) if ranges else None
         last5 = d[-5:]
@@ -238,7 +238,7 @@ def render_chart(q: dict, cfg: dict, title: str) -> bytes | None:
         fp.log("matplotlib unavailable:", repr(e))
         return None
     try:
-        bars = yahoo_bars("CL=F", "5d")
+        bars = yahoo_bars(fp.SYMBOLS["WTI"], "5d")
     except Exception as e:  # noqa
         fp.log("chart bars:", repr(e))
         bars = q.get("bars") or []
@@ -278,7 +278,7 @@ def render_chart(q: dict, cfg: dict, title: str) -> bytes | None:
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%a %H:%M", tz=DXB))
     ax.tick_params(labelsize=8)
     ax.grid(True, alpha=0.25)
-    ax.set_ylabel("WTI $/bbl", fontsize=8)
+    ax.set_ylabel(f"WTI $/bbl ({fp.SYMBOLS['WTI']})", fontsize=8)
     fig.autofmt_xdate()
     fig.text(0.99, 0.01, "5-min bars, Dubai time · Yahoo (CME delayed)", ha="right", fontsize=6.5, color="#777")
     fig.tight_layout()
@@ -299,6 +299,7 @@ def html_wrap(title: str, text: str, has_chart: bool) -> str:
 # ---------------------------------------------------------------- brief
 def main() -> int:
     now = datetime.now(timezone.utc)
+    cfg = fp.load_alerts()
     quotes = {}
     for name, sym in fp.SYMBOLS.items():
         try:
@@ -309,7 +310,6 @@ def main() -> int:
     if not w or w["price"] is None:
         fp.send_email("OIL BRIEF — no data", "Could not fetch WTI from Yahoo. Check the Actions log.")
         return 1
-    cfg = fp.load_alerts()
     pos = cfg.get("position") or {}
     price = float(w["price"])
     ctx = market_context(quotes, pos)
@@ -321,7 +321,7 @@ def main() -> int:
         chg = f"{price - pc:+.2f} ({(price / pc - 1) * 100:+.2f}%) vs prev close {pc:.2f}"
 
     sec = []
-    sec.append(f"WTI {price:.2f}  —  quote {dxb(w['time'])} Dubai"
+    sec.append(f"WTI {price:.2f} ({fp.SYMBOLS['WTI']})  —  quote {dxb(w['time'])} Dubai"
                + ("  [STALE: market closed or feed late]" if stale else ""))
     if chg:
         sec.append(chg)

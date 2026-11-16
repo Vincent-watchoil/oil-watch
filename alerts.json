@@ -1,14 +1,9 @@
 {
- "_help": "Edit this file (GitHub web or phone) whenever you open or close a position. 'when' is 'below' or 'above'. An alert fires once, then 'armed' becomes false; set it back to true to re-arm. Delete 'position' or set barrels to 0 when flat.",
- "position": {
-  "side": "buy",
-  "barrels": 0,
-  "entry": 0,
-  "close_out": null,
-  "aed_per_usd": 3.6725
- },
+ "_help": "Edit this file (GitHub web or phone) whenever you open or close a position. 'when' is 'below' or 'above'. An alert fires once, then 'armed' becomes false; set it back to true to re-arm. Position details live in the POSITION_JSON secret (keeps them out of the public repo). wti_symbol: the contract Plus500 'Oil' is on - CLF27.NYM = January 2027; change at each Plus500 rollover (CLG27.NYM = Feb, CLH27.NYM = Mar). CL=F = exchange front month.",
+ "wti_symbol": "CLF27.NYM",
+ "position": {"side": "buy", "barrels": 0, "entry": 0, "close_out": null, "aed_per_usd": 3.6725},
  "alerts": [
-  {"id": "example-stop-warning", "symbol": "WTI", "when": "below", "level": 80.00, "armed": false, "note": "example - set your own level and armed:true"},
-  {"id": "example-target",       "symbol": "WTI", "when": "above", "level": 95.00, "armed": false, "note": "example - set your own level and armed:true"}
+  {"id": "stop-warning", "symbol": "WTI", "when": "below", "level": 86.20, "armed": true,  "note": "20c above a 86.00 stop; forced close-out ~85.72"},
+  {"id": "target",       "symbol": "WTI", "when": "above", "level": 88.40, "armed": false, "note": "set your target level and armed:true"}
  ]
 }
