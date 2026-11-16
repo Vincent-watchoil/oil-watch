@@ -132,8 +132,11 @@ def send_push(title: str, body: str, priority: str = "high") -> bool:
 # ---------------------------------------------------------------- alerts
 def load_alerts() -> dict:
     cfg = json.loads(ALERTS.read_text()) if ALERTS.exists() else {"alerts": []}
-    if os.environ.get("POSITION_JSON"):
+    # The POSITION_JSON secret is only a fallback: a position set through the
+    # "set position" form (alerts.json, barrels > 0) takes precedence.
+    if os.environ.get("POSITION_JSON") and not (cfg.get("position") or {}).get("barrels"):
         cfg["position"] = json.loads(os.environ["POSITION_JSON"])
+        cfg["_position_from_secret"] = True
     # Which WTI contract to track. Plus500's "Oil" rolls to the next month ~5 days
     # before CME expiry, while Yahoo's CL=F stays on the front month until expiry,
     # so for those days the two differ by the whole M1-M2 spread. Set
@@ -243,7 +246,7 @@ def main() -> int:
         latest["wti"]["symbol"] = SYMBOLS["WTI"]
         (DATA / "latest.json").write_text(json.dumps(latest, indent=1))
     if evaluate(cfg, quotes):
-        if os.environ.get("POSITION_JSON"):
+        if cfg.pop("_position_from_secret", False):
             cfg.pop("position", None)      # never write the secret back into the repo
         ALERTS.write_text(json.dumps(cfg, indent=1) + "\n")
     return 0
