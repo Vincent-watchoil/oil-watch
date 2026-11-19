@@ -73,18 +73,36 @@ def front_and_next(meta_short_name: str | None) -> tuple[str | None, str | None]
     return f"CL{MONTH_CODES[mi]}{yy:02d}.NYM", f"CL{MONTH_CODES[nm]}{ny:02d}.NYM"
 
 
+def _next_contract(sym: str) -> str | None:
+    """'CLF27.NYM' -> 'CLG27.NYM'."""
+    m = re.match(r"CL([FGHJKMNQUVXZ])(\d{2})\.NYM$", sym or "")
+    if not m:
+        return None
+    i, yy = MONTH_CODES.index(m.group(1)), int(m.group(2))
+    return f"CL{MONTH_CODES[(i + 1) % 12]}{yy + (1 if i == 11 else 0):02d}.NYM"
+
+
+def _last_price(sym: str) -> float | None:
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(sym)}?range=1d&interval=1d"
+    with urllib.request.urlopen(urllib.request.Request(url, headers=fp.UA), timeout=20) as r:
+        return json.load(r)["chart"]["result"][0]["meta"].get("regularMarketPrice")
+
+
 def curve_m1m2() -> tuple[float | None, str]:
+    """Spread between the contract being traded and the next month.
+    Uses the configured contract (e.g. CLF27.NYM) so an expiring front month
+    (which converges to ~0 in expiry week) is not mistaken for contango."""
     try:
-        url = "https://query1.finance.yahoo.com/v8/finance/chart/CL%3DF?range=1d&interval=1d"
-        with urllib.request.urlopen(urllib.request.Request(url, headers=fp.UA), timeout=20) as r:
-            meta = json.load(r)["chart"]["result"][0]["meta"]
-        m1, m2 = front_and_next(meta.get("shortName"))
-        if not m2:
+        m1 = fp.SYMBOLS["WTI"]
+        if not m1.endswith(".NYM"):
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(m1)}?range=1d&interval=1d"
+            with urllib.request.urlopen(urllib.request.Request(url, headers=fp.UA), timeout=20) as r:
+                meta = json.load(r)["chart"]["result"][0]["meta"]
+            m1, _ = front_and_next(meta.get("shortName"))
+        m2 = _next_contract(m1)
+        if not (m1 and m2):
             return None, "contract months unknown"
-        p1 = meta.get("regularMarketPrice")
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{m2}?range=1d&interval=1d"
-        with urllib.request.urlopen(urllib.request.Request(url, headers=fp.UA), timeout=20) as r:
-            p2 = json.load(r)["chart"]["result"][0]["meta"].get("regularMarketPrice")
+        p1, p2 = _last_price(m1), _last_price(m2)
         if p1 is None or p2 is None:
             return None, "no price"
         return round(p1 - p2, 2), f"{m1[2:5]}–{m2[2:5]}"
@@ -114,8 +132,10 @@ def headlines(n: int = 3) -> list[tuple[str, str, str]]:
             return datetime(1970, 1, 1, tzinfo=timezone.utc)
     items.sort(key=_ts, reverse=True)
     out, seen = [], set()
+    oil = re.compile(r"\b(oil|crude|brent|wti|opec|hormuz|refin|barrel|tanker|gasoline|diesel|"
+                     r"inventor|eia|api|saudi|aramco|iran|iraq|shale|permian|lng|fuel)", re.I)
     for src, title, pub, link in items:
-        if title in seen:
+        if title in seen or not oil.search(title):
             continue
         seen.add(title)
         out.append((src, title, link))
@@ -228,59 +248,112 @@ def position_block(pos: dict | None, price: float, ctx: dict) -> list[str]:
 
 
 # ---------------------------------------------------------------- chart
-def render_chart(q: dict, cfg: dict, title: str) -> bytes | None:
+def yahoo_ohlc(symbol: str, rng: str = "5d", interval: str = "30m") -> list[dict]:
+    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}"
+           f"?range={rng}&interval={interval}")
+    with urllib.request.urlopen(urllib.request.Request(url, headers=fp.UA), timeout=20) as r:
+        res = json.load(r)["chart"]["result"][0]
+    q = res["indicators"]["quote"][0]
+    out = []
+    for i, t in enumerate(res.get("timestamp") or []):
+        o, h, l, c = q["open"][i], q["high"][i], q["low"][i], q["close"][i]
+        if None in (o, h, l, c):
+            continue
+        out.append({"t": datetime.fromtimestamp(t, timezone.utc), "o": o, "h": h, "l": l, "c": c})
+    return out
+
+
+def render_chart(q: dict, cfg: dict, title: str, hours: int = 30, candle_min: int = 30) -> bytes | None:
+    """Candlestick chart of the last `hours`, `candle_min`-minute candles, Dubai time,
+    with entry / stop / target / close-out / armed alert levels drawn across it."""
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         import matplotlib.dates as mdates
+        from matplotlib.patches import Rectangle
     except Exception as e:  # noqa
         fp.log("matplotlib unavailable:", repr(e))
         return None
+    candles = []
     try:
-        bars = yahoo_bars(fp.SYMBOLS["WTI"], "5d")
+        candles = yahoo_ohlc(fp.SYMBOLS["WTI"], "5d", f"{candle_min}m")
     except Exception as e:  # noqa
-        fp.log("chart bars:", repr(e))
-        bars = q.get("bars") or []
-    if not bars:
+        fp.log("chart ohlc:", repr(e))
+    if not candles:  # fall back to building candles from close-only bars
+        try:
+            import risk
+            closes = yahoo_bars(fp.SYMBOLS["WTI"], "5d")
+        except Exception:  # noqa
+            closes = q.get("bars") or []
+        if not closes:
+            return None
+        import risk
+        candles = risk.bars_to_ohlc(closes, candle_min)
+    cutoff = candles[-1]["t"] - timedelta(hours=hours)
+    candles = [c for c in candles if c["t"] >= cutoff]
+    if not candles:
         return None
-    cutoff = bars[-1][0] - timedelta(hours=30)
-    bars = [(t.astimezone(DXB), c) for t, c in bars if t >= cutoff]
-    xs, ys = [b[0] for b in bars], [b[1] for b in bars]
 
-    fig, ax = plt.subplots(figsize=(7.2, 3.6), dpi=130)
-    ax.plot(xs, ys, color="#1f4e79", linewidth=1.3)
-    ax.fill_between(xs, ys, min(ys), color="#1f4e79", alpha=0.06)
-
-    used: list[float] = []
-    span = (max(ys) - min(ys)) or 1.0
-
-    def hline(y, color, label, style="--"):
-        ax.axhline(y, color=color, linestyle=style, linewidth=1)
-        # stagger labels that would sit on top of each other
-        bump = sum(1 for u in used if abs(u - y) < span * 0.04)
-        used.append(y)
-        ax.annotate(f"{label} {y:.2f}", xy=(xs[0], y), xytext=(3 + bump * 95, 3), textcoords="offset points",
-                    fontsize=7.5, color=color)
+    width = timedelta(minutes=candle_min * 0.7)
+    fig, ax = plt.subplots(figsize=(7.4, 3.9), dpi=130)
+    up, down = "#1b8a4c", "#c62828"
+    for c in candles:
+        x = mdates.date2num(c["t"] - width / 2)
+        mid = c["t"]
+        col = up if c["c"] >= c["o"] else down
+        ax.vlines(mid, c["l"], c["h"], color=col, linewidth=0.9, zorder=2)
+        body_lo, body_hi = min(c["o"], c["c"]), max(c["o"], c["c"])
+        h = max(body_hi - body_lo, 0.004)
+        ax.add_patch(Rectangle((x, body_lo), mdates.date2num(c["t"] + width / 2) - x, h,
+                               facecolor=col, edgecolor=col, linewidth=0.6, zorder=3))
+    lows = [c["l"] for c in candles]; highs = [c["h"] for c in candles]
+    t0, t1 = candles[0]["t"], candles[-1]["t"]
 
     pos = cfg.get("position") or {}
+    levels = []
     if pos.get("barrels") and pos.get("entry"):
-        hline(float(pos["entry"]), "#444444", "entry", "-")
-    if pos.get("close_out"):
-        hline(float(pos["close_out"]), "#b00020", "close-out")
-    if pos.get("target"):
-        hline(float(pos["target"]), "#1b7f3b", "target")
+        levels.append((float(pos["entry"]), "#333333", "entry", "-"))
+    if pos.get("barrels") and pos.get("stop"):
+        levels.append((float(pos["stop"]), "#c62828", "stop", "-"))
+    if pos.get("barrels") and pos.get("close_out"):
+        levels.append((float(pos["close_out"]), "#7b0015", "close-out", "--"))
+    if pos.get("barrels") and pos.get("target"):
+        levels.append((float(pos["target"]), "#1b8a4c", "target", "--"))
     for a in cfg.get("alerts", []):
         if a.get("armed", True) and a.get("symbol", "WTI").upper() == "WTI":
-            hline(float(a["level"]), "#c77d00", a.get("id", "alert"), ":")
+            levels.append((float(a["level"]), "#c77d00", a.get("id", "alert"), ":"))
 
+    # keep the view on the candles; include a level only if it is reasonably near
+    lo, hi = min(lows), max(highs)
+    span = max(hi - lo, 0.5)
+    near = [l for l in levels if lo - span * 0.6 <= l[0] <= hi + span * 0.6]
+    ys = lows + highs + [l[0] for l in near]
+    ax.set_ylim(min(ys) - span * 0.05, max(ys) + span * 0.08)
+
+    used: list[float] = []
+    for y, col, label, style in near:
+        ax.axhline(y, color=col, linestyle=style, linewidth=1, zorder=1)
+        bump = sum(1 for u in used if abs(u - y) < span * 0.05)
+        used.append(y)
+        ax.annotate(f"{label} {y:.2f}", xy=(t0, y), xytext=(3 + bump * 90, 3), textcoords="offset points",
+                    fontsize=7.5, color=col, zorder=5,
+                    bbox=dict(facecolor="white", edgecolor="none", alpha=0.85, pad=1))
+    last = candles[-1]["c"]
+    ax.axhline(last, color="#555", linestyle=(0, (1, 3)), linewidth=0.8, zorder=1)
+    ax.annotate(f"{last:.2f}", xy=(t1, last), xytext=(6, -3), textcoords="offset points",
+                fontsize=7.5, color="#222", fontweight="bold")
+
+    ax.set_xlim(t0 - timedelta(minutes=candle_min), t1 + timedelta(minutes=candle_min * 3))
     ax.set_title(title, fontsize=10, loc="left")
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%a %H:%M", tz=DXB))
+    ax.xaxis.set_major_locator(mdates.HourLocator(byhour=range(0, 24, 3), tz=DXB))
     ax.tick_params(labelsize=8)
-    ax.grid(True, alpha=0.25)
+    ax.grid(True, alpha=0.2)
     ax.set_ylabel(f"WTI $/bbl ({fp.SYMBOLS['WTI']})", fontsize=8)
     fig.autofmt_xdate()
-    fig.text(0.99, 0.01, "5-min bars, Dubai time · Yahoo (CME delayed)", ha="right", fontsize=6.5, color="#777")
+    fig.text(0.99, 0.01, f"{candle_min}-min candles, Dubai time · Yahoo (CME, delayed)",
+             ha="right", fontsize=6.5, color="#777")
     fig.tight_layout()
     buf = io.BytesIO()
     fig.savefig(buf, format="png")
@@ -343,10 +416,20 @@ def main() -> int:
     if b and b["price"]:
         sec.append(f"Brent {float(b['price']):.2f}  ·  Brent–WTI {float(b['price']) - price:+.2f}")
     if ctx.get("m1m2") is not None:
-        word = "backwardation" if ctx["m1m2"] > 0 else "contango"
+        v = ctx["m1m2"]
+        word = "flat" if abs(v) < 0.05 else ("backwardation" if v > 0 else "contango")
         sec.append(f"Curve {ctx['m1m2_label']}: {ctx['m1m2']:+.2f} ({word})")
     else:
         sec.append(f"Curve: {ctx.get('m1m2_label')}")
+    sec.append("")
+    sec.append("PLAN — levels, noise and size")
+    try:
+        import risk
+        bars30 = risk.bars_to_ohlc(yahoo_bars(fp.SYMBOLS["WTI"], "5d"), 30)
+        sec += risk.plan_lines(price, risk.atr(bars30), risk.key_levels(bars30, now),
+                               float(cfg.get("risk_cap_aed", risk.RISK_CAP_AED)))
+    except Exception as e:  # noqa
+        sec.append(f"(plan unavailable: {type(e).__name__})")
     sec.append("")
     sec.append("NEXT EVENTS (Dubai time)")
     for when, label in upcoming(now):

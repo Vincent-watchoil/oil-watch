@@ -29,6 +29,8 @@ def main() -> int:
     ap.add_argument("--barrels", type=float, required=True)
     ap.add_argument("--entry", type=float, default=0)
     ap.add_argument("--equity", type=float, default=0, help="account equity in AED")
+    ap.add_argument("--stop", type=float, default=None, help="your Plus500 Close-at-Loss level")
+    ap.add_argument("--max-risk", type=float, default=500, help="AED risk cap per trade")
     ap.add_argument("--stop-warning", type=float, default=None)
     ap.add_argument("--target", type=float, default=None)
     ap.add_argument("--contract", default="", help="Yahoo symbol Plus500 Oil is on, e.g. CLF27.NYM")
@@ -62,10 +64,37 @@ def main() -> int:
         pos["equity_at_entry"] = a.equity
     if a.target:
         pos["target"] = a.target
+
+    # ---- risk check -------------------------------------------------------
+    report = []
+    if a.stop:
+        import risk
+        dist = (a.entry - a.stop) * sign
+        if dist <= 0:
+            report.append(f"!! STOP {a.stop} is on the wrong side of entry {a.entry} for a {a.side}.")
+        else:
+            r = risk.risk_aed(a.barrels, dist)
+            allowed = risk.barrels_for(a.max_risk, dist)
+            pos["stop"] = a.stop
+            pos["risk_aed"] = round(r)
+            report.append(f"Stop {a.stop} is {dist:.2f} from entry -> risk AED {r:,.0f} on {a.barrels:.0f} bbl "
+                          f"(cap AED {a.max_risk:,.0f}; max at this stop = {allowed} bbl)")
+            if r > a.max_risk * 1.05:
+                report.append(f"!! OVER CAP by AED {r - a.max_risk:,.0f}. "
+                              f"Reduce to {allowed} bbl" + (" — or skip: even 75 bbl exceeds the cap at this stop."
+                                                          if allowed < risk.MIN_BBL else "."))
+                pos["over_cap"] = True
+            if a.target:
+                rew = (a.target - a.entry) * sign
+                report.append(f"Reward:risk to target = {rew / dist:.2f} : 1" + ("  (below 1:1)" if rew < dist else ""))
+    else:
+        report.append("!! No stop given. Every position needs a Close-at-Loss; enter it in the form.")
     cfg["position"] = pos
     if a.contract:
         cfg["wti_symbol"] = a.contract.strip()
 
+    if not a.stop_warning and a.stop:
+        a.stop_warning = round(a.stop + 0.20 * sign, 2)
     if a.stop_warning:
         alerts.append({"id": "stop-warning", "symbol": "WTI",
                        "when": "below" if sign > 0 else "above", "level": a.stop_warning,
@@ -78,6 +107,14 @@ def main() -> int:
     ALERTS.write_text(json.dumps(cfg, indent=1) + "\n")
 
     print(f"{a.side} {a.barrels:.0f} bbl @ {a.entry}  |  AED {per_dollar:,.0f} per $1")
+    for line in report:
+        print(line)
+    summary = Path(__import__("os").environ.get("GITHUB_STEP_SUMMARY", "/dev/null"))
+    try:
+        with summary.open("a") as fh:
+            fh.write(f"### {a.side} {a.barrels:.0f} bbl @ {a.entry}\n\n" + "\n".join(f"- {l}" for l in report) + "\n")
+    except Exception:
+        pass
     if "close_out" in pos:
         print(f"close-out ~{pos['close_out']} ({abs(a.entry - pos['close_out']):.2f} away, from equity AED {a.equity:,.0f})")
     print("alerts:", ", ".join(f"{x['id']} {x['when']} {x['level']}" for x in alerts if x.get("armed")) or "none")
