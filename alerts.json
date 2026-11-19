@@ -20,8 +20,10 @@
    "symbol": "WTI",
    "when": "below",
    "level": 82.85,
-   "armed": true,
-   "note": "warning level; close-out ~80.29"
+   "armed": false,
+   "note": "warning level; close-out ~80.29",
+   "fired_at": "2026-11-19T15:57:03Z",
+   "fired_price": 82.79
   },
   {
    "id": "target",
