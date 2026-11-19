@@ -1,8 +1,8 @@
 {
- "as_of_utc": "2026-11-19T00:25:51Z",
+ "as_of_utc": "2026-11-19T00:30:53Z",
  "wti": {
-  "price": 81.92,
-  "time_utc": "2026-11-19T00:15:27Z",
+  "price": 81.95,
+  "time_utc": "2026-11-19T00:20:47Z",
   "prev_close": 82.31,
   "day_high": 82.22,
   "day_low": 81.85,
@@ -17,5 +17,5 @@
   "day_low": 88.63,
   "stale": false
  },
- "brent_wti": 6.71
+ "brent_wti": 6.68
 }
