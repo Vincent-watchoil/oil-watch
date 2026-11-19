@@ -18,8 +18,14 @@ on:
       equity:
         description: "Account equity in AED (sets the close-out line), e.g. 2730"
         default: "0"
+      stop:
+        description: "Your Close-at-Loss level, e.g. 83.40 (required for an open position)"
+        default: ""
+      max_risk:
+        description: "Max AED at risk per trade"
+        default: "500"
       stop_warning:
-        description: "Warning level, e.g. 86.20 (blank = none)"
+        description: "Warning level (blank = 20 cents before your stop)"
         default: ""
       target:
         description: "Target level, e.g. 88.40 (blank = none)"
@@ -47,6 +53,8 @@ jobs:
       - name: Write position and alerts
         run: |
           args="--side ${{ inputs.side }} --barrels ${{ inputs.barrels }} --entry ${{ inputs.entry }} --equity ${{ inputs.equity }}"
+          [ -n "${{ inputs.stop }}" ]         && args="$args --stop ${{ inputs.stop }}"
+          [ -n "${{ inputs.max_risk }}" ]     && args="$args --max-risk ${{ inputs.max_risk }}"
           [ -n "${{ inputs.stop_warning }}" ] && args="$args --stop-warning ${{ inputs.stop_warning }}"
           [ -n "${{ inputs.target }}" ]       && args="$args --target ${{ inputs.target }}"
           [ -n "${{ inputs.contract }}" ]     && args="$args --contract ${{ inputs.contract }}"
