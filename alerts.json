@@ -3,10 +3,33 @@
  "wti_symbol": "CLF27.NYM",
  "position": {
   "side": "buy",
-  "barrels": 0,
-  "entry": 0,
-  "close_out": null,
-  "aed_per_usd": 3.6725
+  "barrels": 150.0,
+  "entry": 83.33,
+  "aed_per_usd": 3.6725,
+  "opened": "2026-11-19",
+  "funding_pct_per_night": 0.0365,
+  "close_out": 80.29,
+  "equity_at_entry": 1828.0,
+  "target": 84.1,
+  "stop": 82.65,
+  "risk_aed": 375
  },
- "alerts": []
+ "alerts": [
+  {
+   "id": "stop-warning",
+   "symbol": "WTI",
+   "when": "below",
+   "level": 82.85,
+   "armed": true,
+   "note": "warning level; close-out ~80.29"
+  },
+  {
+   "id": "target",
+   "symbol": "WTI",
+   "when": "above",
+   "level": 84.1,
+   "armed": true,
+   "note": "target"
+  }
+ ]
 }
