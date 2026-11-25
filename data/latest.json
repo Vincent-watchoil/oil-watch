@@ -1,17 +1,17 @@
 {
- "as_of_utc": "2026-11-25T20:18:08Z",
+ "as_of_utc": "2026-11-25T20:23:09Z",
  "wti": {
-  "price": 83.85,
-  "time_utc": "2026-11-25T20:08:06Z",
+  "price": 83.89,
+  "time_utc": "2026-11-25T20:12:52Z",
   "prev_close": 82.05,
-  "day_high": 83.93,
+  "day_high": 83.94,
   "day_low": 80.13,
   "stale": false,
   "symbol": "CLF27.NYM"
  },
  "brent": {
-  "price": 90.47,
-  "time_utc": "2026-11-25T20:05:37Z",
+  "price": 90.51,
+  "time_utc": "2026-11-25T20:12:35Z",
   "prev_close": 88.78,
   "day_high": 90.77,
   "day_low": 86.95,
